@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../models/prediction_result.dart';
 import '../theme/app_theme.dart';
@@ -42,10 +43,10 @@ class _PredictionCardState extends State<PredictionCard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Row: Label & Top Prediction Badge
+            // Header Row: Label & Top Prediction Badge & Debug 28x28 Image
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -71,6 +72,37 @@ class _PredictionCardState extends State<PredictionCard> {
                     ),
                   ],
                 ),
+                if (widget.result.debugImageBase64 != null)
+                  Column(
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppTheme.borderBlue, width: 1.5),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: Image.memory(
+                            base64Decode(widget.result.debugImageBase64!),
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.none,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'CNN 28×28 Input',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(

@@ -151,56 +151,61 @@ class DrawingCanvasState extends State<DrawingCanvas> {
 
   @override
   Widget build(BuildContext context) {
-    return RepaintBoundary(
-      key: widget.boundaryKey,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: AppTheme.borderBlue,
-              width: 1.5,
-            ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: AppTheme.borderBlue,
+            width: 1.5,
           ),
-          child: GestureDetector(
-            onPanStart: _onPanStart,
-            onPanUpdate: _onPanUpdate,
-            onPanEnd: _onPanEnd,
-            behavior: HitTestBehavior.opaque,
-            child: CustomPaint(
-              painter: CanvasPainter(
-                strokes: _strokes,
-                currentStroke: _currentStroke,
+        ),
+        child: GestureDetector(
+          onPanStart: _onPanStart,
+          onPanUpdate: _onPanUpdate,
+          onPanEnd: _onPanEnd,
+          behavior: HitTestBehavior.opaque,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // RepaintBoundary isolates only the pure white drawing canvas and user strokes
+              RepaintBoundary(
+                key: widget.boundaryKey,
+                child: CustomPaint(
+                  painter: CanvasPainter(
+                    strokes: _strokes,
+                    currentStroke: _currentStroke,
+                  ),
+                  size: Size.infinite,
+                ),
               ),
-              child: Stack(
-                children: [
-                  if (!hasStrokes)
-                    const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.draw_outlined,
-                            size: 40,
-                            color: AppTheme.borderBlue,
+              if (!hasStrokes)
+                const IgnorePointer(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.draw_outlined,
+                          size: 40,
+                          color: AppTheme.borderBlue,
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Draw a digit (0–9) here',
+                          style: TextStyle(
+                            color: AppTheme.textMuted,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
                           ),
-                          SizedBox(height: 8),
-                          Text(
-                            'Draw a digit (0–9) here',
-                            style: TextStyle(
-                              color: AppTheme.textMuted,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                ],
-              ),
-            ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),

@@ -41,3 +41,7 @@ ENV/
 *.iml
 .DS_Store
 Thumbs.db
+
+scratch*.png
+test_colab_out.png
+backend/debug_input.png

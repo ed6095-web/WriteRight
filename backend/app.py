@@ -26,8 +26,12 @@ CORS(app)
 
 # Base directories
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(BASE_DIR, "model", "handwriting_model.keras")
+MODEL_PATH = os.path.join(BASE_DIR, "model", "write_right_mnist.keras")
+if not os.path.exists(MODEL_PATH):
+    MODEL_PATH = os.path.join(BASE_DIR, "model", "handwriting_model.keras")
+
 DATA_DIR = os.path.join(BASE_DIR, "data", "user_samples")
+DEBUG_IMG_PATH = os.path.join(BASE_DIR, "debug_input.png")
 
 # Ensure user sample directories (0-9) exist
 for digit in range(10):
@@ -46,11 +50,20 @@ def health_check():
     }), 200
 
 
+@app.route("/debug_input.png", methods=["GET"])
+def get_debug_input_image():
+    """Returns the latest 28x28 preprocessed image sent to the CNN."""
+    from flask import send_file
+    if os.path.exists(DEBUG_IMG_PATH):
+        return send_file(DEBUG_IMG_PATH, mimetype="image/png")
+    return jsonify({"error": "No debug image generated yet. Run /predict first."}), 404
+
+
 @app.route("/predict", methods=["POST"])
 def predict():
     """
     Accepts multipart/form-data with 'image' file.
-    Preprocesses the image, feeds it to the CNN, and returns prediction.
+    Preprocesses the image, feeds it to the CNN, saves debug_input.png, and returns prediction.
     """
     if "image" not in request.files:
         return jsonify({"error": "No image file provided in request. Expected field 'image'."}), 400
@@ -64,8 +77,11 @@ def predict():
         return jsonify({"error": "Uploaded image file is empty."}), 400
 
     try:
-        # Preprocessing pipeline
-        input_tensor = preprocess_image(image_bytes)
+        # Preprocessing pipeline conforming strictly to MNIST contract
+        input_tensor, debug_img, debug_base64 = preprocess_image(
+            image_bytes,
+            debug_output_path=DEBUG_IMG_PATH
+        )
     except EmptyDrawingError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
@@ -73,9 +89,13 @@ def predict():
         return jsonify({"error": f"Invalid or unreadable image: {str(e)}"}), 400
 
     try:
-        # Inference pipeline
+        # Inference pipeline on loaded Keras model
         result = prediction_service.predict(input_tensor)
-        logger.info(f"Prediction: {result['prediction']} (confidence: {result['confidence']:.4f})")
+        result["debug_image_base64"] = debug_base64
+        logger.info(
+            f"Prediction: {result['prediction']} (confidence: {result['confidence']:.4f}) | "
+            f"Debug image saved to {DEBUG_IMG_PATH}"
+        )
         return jsonify(result), 200
     except RuntimeError as e:
         logger.error(f"Prediction runtime error: {e}")

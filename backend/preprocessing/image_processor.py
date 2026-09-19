@@ -1,4 +1,6 @@
 import io
+import os
+import base64
 import numpy as np
 from PIL import Image, ImageOps
 
@@ -6,91 +8,108 @@ class EmptyDrawingError(ValueError):
     """Raised when an uploaded canvas image contains no detectable handwriting."""
     pass
 
-def preprocess_image(image_bytes: bytes) -> np.ndarray:
+def preprocess_image(image_bytes: bytes, debug_output_path: str = None) -> tuple[np.ndarray, Image.Image, str]:
     """
     Preprocess an uploaded handwriting canvas image into a normalized 28x28x1 tensor
-    conforming to MNIST CNN standards:
+    conforming strictly to MNIST CNN specifications:
     
-    1. Read input image bytes.
-    2. Convert to grayscale.
-    3. Ensure white strokes on black background (invert if canvas has light background).
-    4. Detect non-background pixels and bounding box.
-    5. Crop handwriting tightly to bounding box.
-    6. Resize while preserving aspect ratio so the longest dimension is 20 pixels.
-    7. Center the 20x20 digit inside a 28x28 black canvas.
-    8. Normalize pixel values to range [0.0, 1.0].
-    9. Reshape to (1, 28, 28, 1).
+    1. Receive the actual drawing canvas image.
+    2. Convert RGBA/RGB to grayscale, compositing any alpha on pure white.
+    3. Convert the image to MNIST polarity:
+       background = 0, handwriting = 255 (invert polarity).
+    4. Detect handwriting pixels using a threshold.
+    5. Find bounding box around handwriting.
+    6. Crop ONLY the handwriting.
+    7. Preserve aspect ratio.
+    8. Resize the cropped handwriting so its largest dimension is approximately 20 pixels.
+    9. Create a new 28x28 black image.
+    10. Center the resized handwriting inside the 28x28 image.
+    11. Convert to float32.
+    12. Divide by 255.0.
+    13. Reshape: (1, 28, 28, 1).
+    14. Save debug_input.png and return base64 preview.
+
+    Returns:
+        (input_tensor, debug_image, debug_image_base64)
     """
     try:
         pil_img = Image.open(io.BytesIO(image_bytes))
     except Exception as e:
         raise ValueError(f"Invalid image format: {e}")
 
-    # Convert to grayscale
+    # Handle transparent background by compositing onto pure white
+    if pil_img.mode in ("RGBA", "LA") or (pil_img.mode == "P" and "transparency" in pil_img.info):
+        bg = Image.new("RGB", pil_img.size, (255, 255, 255))
+        if pil_img.mode == "RGBA":
+            bg.paste(pil_img, mask=pil_img.split()[-1])
+        else:
+            bg.paste(pil_img.convert("RGBA"), mask=pil_img.convert("RGBA").split()[-1])
+        pil_img = bg
+
+    # 2. Convert to grayscale
     gray_img = pil_img.convert("L")
     img_array = np.array(gray_img)
 
-    # Determine background: if average corners/borders or mean > 128, canvas is light background
-    # MNIST digits must have bright strokes (255) on a dark background (0)
+    # 3. Convert image to MNIST polarity: background = 0, handwriting = 255
     if np.mean(img_array) > 127:
-        gray_img = ImageOps.invert(gray_img)
-        img_array = np.array(gray_img)
+        # Light canvas background -> invert polarity so strokes become white on black
+        inverted_img = ImageOps.invert(gray_img)
+        inv_array = np.array(inverted_img)
+    else:
+        # Already dark background (e.g. Colab preprocessed test image)
+        inverted_img = gray_img
+        inv_array = img_array
 
-    # Threshold foreground pixels (strokes)
-    # Consider pixels above 25 as stroke content to ignore minor noise
-    foreground_mask = img_array > 30
+    # Boost stroke intensity to MNIST brightness (stroke maximum should reach 255)
+    max_val = float(np.max(inv_array))
+    if max_val > 40:
+        inv_array = np.clip(inv_array * (255.0 / max_val), 0, 255).astype(np.uint8)
+        inverted_img = Image.fromarray(inv_array)
 
+    # 4. Detect handwriting pixels using threshold
+    foreground_mask = inv_array > 35
     if not np.any(foreground_mask):
         raise EmptyDrawingError("No handwriting detected. The drawing canvas is empty.")
 
-    # Find bounding box coordinates
+    # 5. Find bounding box around handwriting
     rows = np.any(foreground_mask, axis=1)
     cols = np.any(foreground_mask, axis=0)
     rmin, rmax = np.where(rows)[0][[0, -1]]
     cmin, cmax = np.where(cols)[0][[0, -1]]
 
-    # Crop tightly to the handwriting bounding box
-    # PIL crop box: (left, upper, right, lower)
-    cropped = gray_img.crop((cmin, rmin, cmax + 1, rmax + 1))
+    # 6. Crop ONLY the handwriting
+    cropped = inverted_img.crop((cmin, rmin, cmax + 1, rmax + 1))
     crop_w, crop_h = cropped.size
 
-    # Scale so that the longer side is 20 pixels, preserving aspect ratio
+    # 7. Preserve aspect ratio
+    # 8. Resize the cropped handwriting so its largest dimension is approximately 20 pixels
     scale = 20.0 / max(crop_w, crop_h)
     new_w = max(1, int(round(crop_w * scale)))
     new_h = max(1, int(round(crop_h * scale)))
 
-    # Use LANCZOS / Resampling.LANCZOS for smooth downsampling
     resized_digit = cropped.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-    # Create a 28x28 black canvas (value 0)
+    # 9. Create a new 28x28 black image
     canvas_28 = Image.new("L", (28, 28), color=0)
 
-    # Place the resized digit in the center of the 28x28 canvas
+    # 10. Center the resized handwriting inside the 28x28 image
     offset_x = (28 - new_w) // 2
     offset_y = (28 - new_h) // 2
     canvas_28.paste(resized_digit, (offset_x, offset_y))
 
-    # Center-of-mass adjustment (optional MNIST fine-tuning)
-    # If the center of mass deviates significantly from (14, 14), shift slightly
-    canvas_array = np.array(canvas_28, dtype=np.float32)
-    total_mass = np.sum(canvas_array)
-    if total_mass > 0:
-        y_indices, x_indices = np.indices((28, 28))
-        cy = np.sum(y_indices * canvas_array) / total_mass
-        cx = np.sum(x_indices * canvas_array) / total_mass
-        shift_x = int(round(14.0 - cx))
-        shift_y = int(round(14.0 - cy))
-        
-        # Only apply small shifts (-3 to +3) to avoid pushing digit out of frame
-        if abs(shift_x) <= 3 and abs(shift_y) <= 3 and (shift_x != 0 or shift_y != 0):
-            shifted = Image.new("L", (28, 28), color=0)
-            shifted.paste(canvas_28, (shift_x, shift_y))
-            canvas_28 = shifted
-            canvas_array = np.array(canvas_28, dtype=np.float32)
+    # Save debug_input.png for inspection
+    if debug_output_path:
+        os.makedirs(os.path.dirname(os.path.abspath(debug_output_path)), exist_ok=True)
+        canvas_28.save(debug_output_path)
 
-    # Normalize pixel values to 0.0 - 1.0
-    normalized = canvas_array / 255.0
+    # Convert to base64 PNG string for visual UI preview
+    buf = io.BytesIO()
+    canvas_28.save(buf, format="PNG")
+    debug_base64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
-    # Reshape to (1, 28, 28, 1)
-    tensor = normalized.reshape(1, 28, 28, 1)
-    return tensor
+    # 11. Convert to float32
+    # 12. Divide by 255.0
+    # 13. Reshape to (1, 28, 28, 1)
+    tensor = (np.array(canvas_28, dtype=np.float32) / 255.0).reshape(1, 28, 28, 1)
+
+    return tensor, canvas_28, debug_base64
