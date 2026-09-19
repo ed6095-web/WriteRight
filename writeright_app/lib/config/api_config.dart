@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 
 /// Configuration for backend API connectivity.
 /// Supports running on:
@@ -8,15 +7,12 @@ import 'package:flutter/foundation.dart';
 class ApiConfig {
   /// Default base URL.
   /// Change this to your computer's LAN IP when deploying to a physical Android device.
+  static const String defaultProductionUrl = 'https://writeright-backend-gcwb.onrender.com';
   static const String defaultAndroidEmulatorUrl = 'http://10.0.2.2:5000';
   static const String defaultDesktopUrl = 'http://127.0.0.1:5000';
 
-  /// Currently active base URL. Can be dynamically updated in-app for convenience.
-  static String _currentBaseUrl = kIsWeb
-      ? 'http://localhost:5000'
-      : (defaultTargetPlatform == TargetPlatform.android
-          ? defaultAndroidEmulatorUrl
-          : defaultDesktopUrl);
+  /// Currently active base URL. Defaults to the live cloud backend on Render.
+  static String _currentBaseUrl = defaultProductionUrl;
 
   static String get baseUrl => _currentBaseUrl;
 
