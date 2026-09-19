@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: writeright-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    region: oregon
+    buildCommand: "pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt"
+    startCommand: "gunicorn --workers 1 --threads 2 --bind 0.0.0.0:$PORT app:app"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: KERAS_BACKEND
+        value: torch
