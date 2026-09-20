@@ -1,52 +1,116 @@
-/// Data model representing a digit recognition prediction response from the Flask backend.
-class PredictionResult {
-  final int prediction;
+/// Per-character prediction result used in Word Mode.
+class CharacterPrediction {
+  final String prediction;
   final double confidence;
-  final Map<int, double> probabilities;
   final String? debugImageBase64;
 
+  const CharacterPrediction({
+    required this.prediction,
+    required this.confidence,
+    this.debugImageBase64,
+  });
+
+  factory CharacterPrediction.fromJson(Map<String, dynamic> json) {
+    return CharacterPrediction(
+      prediction: json['prediction']?.toString() ?? '',
+      confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
+      debugImageBase64: json['debug_image_base64'] as String?,
+    );
+  }
+
+  String get formattedConfidence => '${(confidence * 100).toStringAsFixed(1)}%';
+}
+
+/// Data model representing a recognition prediction response from the Flask backend.
+/// Supports Digits, Letters, and Words modes seamlessly.
+class PredictionResult {
+  final String mode; // 'digit' | 'letter' | 'word'
+  final dynamic prediction; // int for digit, String for letter or word
+  final double confidence;
+  final Map<dynamic, double> probabilities;
+  final String? debugImageBase64;
+  final List<CharacterPrediction> characters;
+  final List<String> characterPreviewsBase64;
+
   const PredictionResult({
+    required this.mode,
     required this.prediction,
     required this.confidence,
     required this.probabilities,
     this.debugImageBase64,
+    this.characters = const [],
+    this.characterPreviewsBase64 = const [],
   });
 
   /// Factory constructor to parse JSON response from Flask backend.
-  /// Seamlessly supports probabilities formatted as either a List or Map.
   factory PredictionResult.fromJson(Map<String, dynamic> json) {
+    final mode = (json['mode'] as String?)?.toLowerCase() ?? 'digit';
     final rawProbabilities = json['probabilities'];
-    final Map<int, double> parsedProbabilities = {};
+    final Map<dynamic, double> parsedProbabilities = {};
 
     if (rawProbabilities is List) {
       for (int i = 0; i < rawProbabilities.length; i++) {
         final val = rawProbabilities[i];
         if (val is num) {
-          parsedProbabilities[i] = val.toDouble();
+          if (mode == 'letter') {
+            parsedProbabilities[String.fromCharCode(65 + i)] = val.toDouble();
+          } else {
+            parsedProbabilities[i] = val.toDouble();
+          }
         }
       }
     } else if (rawProbabilities is Map) {
       rawProbabilities.forEach((key, value) {
-        final digit = int.tryParse(key.toString());
-        if (digit != null && value is num) {
-          parsedProbabilities[digit] = value.toDouble();
+        if (value is num) {
+          final digit = int.tryParse(key.toString());
+          parsedProbabilities[digit ?? key.toString()] = value.toDouble();
         }
       });
     }
 
+    // Parse characters for word mode
+    final List<CharacterPrediction> chars = [];
+    if (json['characters'] is List) {
+      for (final item in json['characters']) {
+        if (item is Map<String, dynamic>) {
+          chars.add(CharacterPrediction.fromJson(item));
+        }
+      }
+    }
+
+    // Parse character previews
+    final List<String> previews = [];
+    if (json['character_previews_base64'] is List) {
+      for (final item in json['character_previews_base64']) {
+        if (item is String) {
+          previews.add(item);
+        }
+      }
+    }
+
     return PredictionResult(
-      prediction: (json['prediction'] as num?)?.toInt() ?? 0,
+      mode: mode,
+      prediction: json['prediction'],
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
       probabilities: parsedProbabilities,
       debugImageBase64: json['debug_image_base64'] as String?,
+      characters: chars,
+      characterPreviewsBase64: previews,
     );
   }
+
+  /// String representation of primary prediction
+  String get displayPrediction => prediction?.toString() ?? '';
 
   /// Formatted confidence string (e.g., "95.17%")
   String get formattedConfidence => '${(confidence * 100).toStringAsFixed(2)}%';
 
-  /// Top 3 most likely alternative digits
-  List<MapEntry<int, double>> get sortedProbabilities {
+  bool get isWordMode => mode == 'word';
+  bool get isLetterMode => mode == 'letter';
+  bool get isDigitMode => mode == 'digit';
+
+  /// Top sorted alternatives
+  List<MapEntry<dynamic, double>> get sortedProbabilities {
     final entries = probabilities.entries.toList();
     entries.sort((a, b) => b.value.compareTo(a.value));
     return entries;

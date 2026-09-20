@@ -29,6 +29,6 @@ class ApiConfig {
   static String get feedbackEndpoint => '$_currentBaseUrl/feedback';
   static String get healthEndpoint => '$_currentBaseUrl/health';
 
-  /// Timeout duration for requests
-  static const Duration requestTimeout = Duration(seconds: 12);
+  /// Timeout duration for requests (45s to accommodate Render free tier cold-starts)
+  static const Duration requestTimeout = Duration(seconds: 45);
 }

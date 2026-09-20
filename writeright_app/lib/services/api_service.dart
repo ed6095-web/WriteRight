@@ -54,20 +54,24 @@ class ApiService {
     }
   }
 
-  /// Send captured handwriting PNG bytes to Flask /predict.
-  Future<PredictionResult> predictDigit(Uint8List imageBytes) async {
+  /// Send captured handwriting PNG bytes to Flask /predict with specified mode ('digit', 'letter', 'word').
+  Future<PredictionResult> predict(
+    Uint8List imageBytes, {
+    String mode = 'digit',
+  }) async {
     if (imageBytes.isEmpty) {
-      throw ApiException('Please draw a digit before recognizing.');
+      throw ApiException('Please draw on the canvas before recognizing.');
     }
 
     try {
       final uri = Uri.parse(ApiConfig.predictEndpoint);
       final request = http.MultipartRequest('POST', uri);
 
+      request.fields['mode'] = mode;
       final multipartFile = http.MultipartFile.fromBytes(
         'image',
         imageBytes,
-        filename: 'handwriting.png',
+        filename: 'handwriting_$mode.png',
       );
       request.files.add(multipartFile);
 
@@ -91,10 +95,13 @@ class ApiService {
     } on SocketException {
       throw ApiException(
         "Couldn't connect to the recognition server at ${ApiConfig.baseUrl}.\n"
-        "Please check your Wi-Fi network and IP settings.",
+        "Please check your internet connection or server status.",
       );
     } on TimeoutException {
-      throw ApiException('Request timed out while waiting for prediction.');
+      throw ApiException(
+        'Request timed out while waiting for prediction. '
+        'The server may be waking up, please try again in a moment.',
+      );
     } on FormatException {
       throw ApiException('Invalid data received from recognition server.');
     } catch (e) {
@@ -103,18 +110,28 @@ class ApiService {
     }
   }
 
+  /// Convenience wrapper for backwards compatibility with digit mode.
+  Future<PredictionResult> predictDigit(Uint8List imageBytes) {
+    return predict(imageBytes, mode: 'digit');
+  }
+
   /// Send user correction to Flask /feedback.
-  Future<bool> sendFeedback(Uint8List imageBytes, int correctLabel) async {
+  Future<bool> sendFeedback(
+    Uint8List imageBytes,
+    dynamic correctLabel, {
+    String mode = 'digit',
+  }) async {
     try {
       final uri = Uri.parse(ApiConfig.feedbackEndpoint);
       final request = http.MultipartRequest('POST', uri);
 
       request.fields['correct_label'] = correctLabel.toString();
+      request.fields['mode'] = mode;
       request.files.add(
         http.MultipartFile.fromBytes(
           'image',
           imageBytes,
-          filename: 'feedback_digit_$correctLabel.png',
+          filename: 'feedback_${mode}_$correctLabel.png',
         ),
       );
 

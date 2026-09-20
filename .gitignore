@@ -45,3 +45,5 @@ Thumbs.db
 scratch*.png
 test_colab_out.png
 backend/debug_input.png
+backend/data/feedback/
+backend/data/user_samples/

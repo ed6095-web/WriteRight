@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../config/api_config.dart';
@@ -20,12 +21,21 @@ class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<DrawingCanvasState> _canvasKey = GlobalKey<DrawingCanvasState>();
   final ApiService _apiService = ApiService();
 
+  String _currentMode = 'digit'; // 'digit' | 'letter' | 'word'
   bool _hasDrawing = false;
   bool _isRecognizing = false;
+  bool _isSlowRequest = false;
   bool _isSubmittingFeedback = false;
+  Timer? _slowRequestTimer;
   Uint8List? _lastCapturedImage;
   PredictionResult? _predictionResult;
   String? _feedbackStatusMessage;
+
+  @override
+  void dispose() {
+    _slowRequestTimer?.cancel();
+    super.dispose();
+  }
 
   void _onDrawingChanged(bool hasDrawing) {
     setState(() {
@@ -48,11 +58,24 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _recognizeDigit() async {
+  void _onModeChanged(String mode) {
+    if (_currentMode == mode) return;
+    _clearCanvas();
+    setState(() {
+      _currentMode = mode;
+    });
+  }
+
+  Future<void> _recognize() async {
     if (!_hasDrawing) {
+      final modeLabel = _currentMode == 'word'
+          ? 'a word'
+          : _currentMode == 'letter'
+              ? 'an uppercase letter'
+              : 'a digit';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please write a digit on the canvas first.'),
+        SnackBar(
+          content: Text('Please write $modeLabel on the canvas first.'),
           backgroundColor: AppTheme.darkBlue,
           behavior: SnackBarBehavior.floating,
         ),
@@ -62,7 +85,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _isRecognizing = true;
+      _isSlowRequest = false;
       _feedbackStatusMessage = null;
+    });
+
+    _slowRequestTimer?.cancel();
+    _slowRequestTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (mounted && _isRecognizing) {
+        setState(() {
+          _isSlowRequest = true;
+        });
+      }
     });
 
     try {
@@ -72,7 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       _lastCapturedImage = imageBytes;
-      final result = await _apiService.predictDigit(imageBytes);
+      final result = await _apiService.predict(imageBytes, mode: _currentMode);
 
       setState(() {
         _predictionResult = result;
@@ -93,9 +126,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     } finally {
+      _slowRequestTimer?.cancel();
       if (mounted) {
         setState(() {
           _isRecognizing = false;
+          _isSlowRequest = false;
         });
       }
     }
@@ -112,6 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await _apiService.sendFeedback(
         _lastCapturedImage!,
         _predictionResult!.prediction,
+        mode: _currentMode,
       );
       if (!mounted) return;
       setState(() {
@@ -135,7 +171,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _submitCorrection(int correctDigit) async {
+  Future<void> _submitCorrection(dynamic correctLabel) async {
     if (_lastCapturedImage == null) return;
 
     setState(() {
@@ -143,10 +179,15 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      await _apiService.sendFeedback(_lastCapturedImage!, correctDigit);
+      await _apiService.sendFeedback(
+        _lastCapturedImage!,
+        correctLabel,
+        mode: _currentMode,
+      );
       if (!mounted) return;
       setState(() {
-        _feedbackStatusMessage = 'Saved! Corrected label ($correctDigit) stored successfully.';
+        _feedbackStatusMessage =
+            'Saved! Corrected label ($correctLabel) stored successfully.';
       });
     } catch (e) {
       if (!mounted) return;
@@ -238,6 +279,43 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  String get _subtitleText {
+    switch (_currentMode) {
+      case 'letter':
+        return 'Write a single uppercase letter (A–Z) and let the CNN recognize it.';
+      case 'word':
+        return 'Write a word horizontally with slight spacing between letters.';
+      case 'digit':
+      default:
+        return 'Write a single digit (0–9) and let the CNN recognize it.';
+    }
+  }
+
+  String get _headerTitle {
+    switch (_currentMode) {
+      case 'letter':
+        return 'Write your letter';
+      case 'word':
+        return 'Write your word';
+      case 'digit':
+      default:
+        return 'Write your digit';
+    }
+  }
+
+  String get _recognizeButtonLabel {
+    if (_isRecognizing) return 'Recognizing...';
+    switch (_currentMode) {
+      case 'letter':
+        return 'Recognize Letter';
+      case 'word':
+        return 'Recognize Word';
+      case 'digit':
+      default:
+        return 'Recognize Digit';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -296,9 +374,9 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Subtitle
-              const Text(
-                'Write a digit and let the model recognize it.',
-                style: TextStyle(
+              Text(
+                _subtitleText,
+                style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w400,
                   color: AppTheme.textSecondary,
@@ -310,9 +388,9 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Write your digit',
-                    style: TextStyle(
+                  Text(
+                    _headerTitle,
+                    style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                       color: AppTheme.textPrimary,
@@ -331,16 +409,48 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 10),
 
-              // Drawing Canvas Container
+              // Drawing Canvas Container (Dynamic aspect ratio: 1.0 for digits/letters, 2.2 for words)
               AspectRatio(
-                aspectRatio: 1.0, // Square drawing canvas
+                aspectRatio: _currentMode == 'word' ? 2.2 : 1.0,
                 child: DrawingCanvas(
                   key: _canvasKey,
                   boundaryKey: _canvasBoundaryKey,
                   onDrawingChanged: _onDrawingChanged,
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+
+              // Pill-shaped Mode Tabs near the bottom of handwriting area: [ Digits ] [ Letters ] [ Words ]
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: AppTheme.lightBlue.withOpacity(0.45),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: AppTheme.borderBlue),
+                ),
+                child: Row(
+                  children: [
+                    _buildModePill(
+                      label: 'Digits',
+                      mode: 'digit',
+                      icon: Icons.pin_outlined,
+                    ),
+                    const SizedBox(width: 4),
+                    _buildModePill(
+                      label: 'Letters',
+                      mode: 'letter',
+                      icon: Icons.text_fields_outlined,
+                    ),
+                    const SizedBox(width: 4),
+                    _buildModePill(
+                      label: 'Words',
+                      mode: 'word',
+                      icon: Icons.auto_stories_outlined,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
 
               // Action Buttons Row: [ Clear ] [ Recognize ]
               Row(
@@ -357,7 +467,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Expanded(
                     flex: 3,
                     child: ElevatedButton.icon(
-                      onPressed: (_hasDrawing && !_isRecognizing) ? _recognizeDigit : null,
+                      onPressed: (_hasDrawing && !_isRecognizing) ? _recognize : null,
                       icon: _isRecognizing
                           ? const SizedBox(
                               width: 16,
@@ -368,11 +478,48 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             )
                           : const Icon(Icons.search, size: 18),
-                      label: Text(_isRecognizing ? 'Recognizing...' : 'Recognize'),
+                      label: Text(_recognizeButtonLabel),
                     ),
                   ),
                 ],
               ),
+
+              // Cold-start wakeup hint
+              if (_isSlowRequest) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.lightBlue,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppTheme.borderBlue),
+                  ),
+                  child: const Row(
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppTheme.primaryBlue,
+                        ),
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Connecting to cloud server (waking up free instance, ~20-30s)...',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: AppTheme.darkBlue,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 24),
 
               // Prediction Result Card
@@ -386,6 +533,56 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
 
               const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModePill({
+    required String label,
+    required String mode,
+    required IconData icon,
+  }) {
+    final isSelected = _currentMode == mode;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _onModeChanged(mode),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeInOut,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? AppTheme.primaryBlue : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: AppTheme.primaryBlue.withOpacity(0.25),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 15,
+                color: isSelected ? Colors.white : AppTheme.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                ),
+              ),
             ],
           ),
         ),
