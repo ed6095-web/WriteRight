@@ -4,6 +4,7 @@ import time
 import uuid
 import json
 import logging
+import threading
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 
@@ -18,6 +19,8 @@ from preprocessing.image_processor import (
     WordSegmentationError,
 )
 from services.prediction_service import PredictionService
+from services.personalization_service import PersonalizationService
+from training.personalize import train_personalized_model
 
 # Configure logging
 logging.basicConfig(
@@ -195,72 +198,110 @@ def feedback():
     if not correct_label_raw:
         return jsonify({"error": "Missing 'correct_label' or 'correct_word' form field."}), 400
 
-    file = request.files["image"]
+    file = request.files.get("image")
+    if not file:
+        return jsonify({"error": "Missing 'image' file in request."}), 400
     image_bytes = file.read()
     if not image_bytes:
         return jsonify({"error": "Uploaded feedback image is empty."}), 400
 
-    timestamp = int(time.time() * 1000)
-    unique_id = uuid.uuid4().hex[:8]
-    filename = f"sample_{timestamp}_{unique_id}.png"
+    # Extract optional metadata
+    source = request.form.get("source") or request.args.get("source") or "explicit_correction"
+    predicted_label = request.form.get("predicted_label") or request.args.get("predicted_label")
+    confidence_val = None
+    try:
+        raw_conf = request.form.get("confidence") or request.args.get("confidence")
+        if raw_conf is not None:
+            confidence_val = float(raw_conf)
+    except Exception:
+        pass
 
-    # Validation and routing per mode
-    if mode == "digit":
+    try:
+        pers_service = PersonalizationService.get_instance()
+        result = pers_service.record_feedback(
+            image_bytes=image_bytes,
+            mode=mode,
+            correct_label=correct_label_raw,
+            predicted_label=predicted_label,
+            confidence=confidence_val,
+            source=source,
+        )
+
+        # Check if threshold reached to trigger background fine-tuning
+        if result.get("ready_for_training") and not pers_service.is_training_in_progress:
+            def _async_train():
+                try:
+                    logger.info(f"Threshold reached ({result.get('pending_samples')} samples). Starting background training...")
+                    train_personalized_model(mode=mode)
+                    prediction_service.reload_active_models()
+                except Exception as e:
+                    logger.error(f"Automatic background training failed: {e}")
+
+            threading.Thread(target=_async_train, daemon=True).start()
+
+        logger.info(f"Feedback stored successfully for mode='{mode}', label='{correct_label_raw}', source='{source}'")
+        return jsonify({
+            "success": True,
+            "message": "Feedback sample recorded successfully into personalized learning dataset.",
+            **result,
+        }), 200
+
+    except EmptyDrawingError as e:
+        return jsonify({"error": f"Invalid drawing: {e}"}), 400
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error(f"Error processing feedback: {e}", exc_info=True)
+        return jsonify({"error": f"Internal server error: {e}"}), 500
+
+
+@app.route("/personalization/status", methods=["GET"])
+def personalization_status():
+    """Returns real-time personalization metrics and pending sample counts."""
+    service = PersonalizationService.get_instance()
+    return jsonify(service.get_status()), 200
+
+
+@app.route("/personalization/train", methods=["POST"])
+def personalization_train():
+    """
+    Triggers an asynchronous model fine-tuning job in a background thread.
+    Does NOT block recognition or predict requests.
+    """
+    data = request.get_json(silent=True) or {}
+    mode = data.get("mode") or request.args.get("mode") or "digits"
+    force = bool(data.get("force") or request.args.get("force"))
+
+    service = PersonalizationService.get_instance()
+    if service.is_training_in_progress:
+        return jsonify({
+            "success": False,
+            "message": "Training is already in progress in the background.",
+        }), 409
+
+    def _run_train():
         try:
-            val = int(correct_label_raw)
-            if not (0 <= val <= 9):
-                raise ValueError()
-            label_str = str(val)
-        except ValueError:
-            return jsonify({"error": f"Invalid digit label '{correct_label_raw}'. Must be 0-9."}), 400
+            train_personalized_model(mode=mode, force=force)
+            prediction_service.reload_active_models()
+        except Exception as e:
+            logger.error(f"Manual training job failed: {e}")
 
-        target_dir = os.path.join(FEEDBACK_DIR, "digits", label_str)
-        legacy_dir = os.path.join(DATA_DIR, "user_samples", label_str)
-        os.makedirs(target_dir, exist_ok=True)
-        os.makedirs(legacy_dir, exist_ok=True)
+    threading.Thread(target=_run_train, daemon=True).start()
 
-        with open(os.path.join(target_dir, filename), "wb") as f:
-            f.write(image_bytes)
-        with open(os.path.join(legacy_dir, filename), "wb") as f:
-            f.write(image_bytes)
-
-    elif mode == "letter":
-        char = correct_label_raw.upper()
-        if len(char) != 1 or not ('A' <= char <= 'Z'):
-            return jsonify({"error": f"Invalid letter label '{correct_label_raw}'. Must be single character A-Z."}), 400
-
-        target_dir = os.path.join(FEEDBACK_DIR, "letters", char)
-        os.makedirs(target_dir, exist_ok=True)
-        with open(os.path.join(target_dir, filename), "wb") as f:
-            f.write(image_bytes)
-
-    elif mode == "word":
-        word_clean = "".join(c for c in correct_label_raw.upper() if c.isalpha())
-        if not word_clean:
-            return jsonify({"error": "Word label must contain valid letters A-Z."}), 400
-
-        target_dir = os.path.join(FEEDBACK_DIR, "words")
-        os.makedirs(target_dir, exist_ok=True)
-        img_path = os.path.join(target_dir, filename)
-        with open(img_path, "wb") as f:
-            f.write(image_bytes)
-
-        # Append to metadata.jsonl
-        meta_record = {
-            "timestamp": timestamp,
-            "correct_word": word_clean,
-            "filename": filename,
-        }
-        meta_path = os.path.join(target_dir, "metadata.jsonl")
-        with open(meta_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(meta_record) + "\n")
-
-    logger.info(f"Feedback stored successfully for mode='{mode}', label='{correct_label_raw}'")
     return jsonify({
         "success": True,
-        "message": "Feedback sample stored successfully",
-        "saved_file": filename,
-        "mode": mode,
+        "message": f"Personalized training job launched for mode '{mode}'. Inference remains active.",
+    }), 202
+
+
+@app.route("/personalization/model", methods=["GET"])
+def personalization_model():
+    """Returns active model version information."""
+    service = PersonalizationService.get_instance()
+    active = service.get_active_versions()
+    return jsonify({
+        "active_models": active,
+        "status": service.get_status(),
     }), 200
 
 

@@ -120,6 +120,9 @@ class ApiService {
     Uint8List imageBytes,
     dynamic correctLabel, {
     String mode = 'digit',
+    String? predictedLabel,
+    double? confidence,
+    String source = 'explicit_correction',
   }) async {
     try {
       final uri = Uri.parse('${ApiConfig.feedbackEndpoint}?mode=$mode');
@@ -128,6 +131,13 @@ class ApiService {
       request.fields['correct_label'] = correctLabel.toString();
       request.fields['correct_word'] = correctLabel.toString();
       request.fields['mode'] = mode;
+      request.fields['source'] = source;
+      if (predictedLabel != null) {
+        request.fields['predicted_label'] = predictedLabel;
+      }
+      if (confidence != null) {
+        request.fields['confidence'] = confidence.toString();
+      }
       request.files.add(
         http.MultipartFile.fromBytes(
           'image',
@@ -143,20 +153,54 @@ class ApiService {
       if (response.statusCode == 200) {
         return true;
       } else {
-        throw ApiException(
-          'Failed to record feedback (${response.statusCode})',
-          statusCode: response.statusCode,
-        );
+        String errorMsg = 'Failed to record feedback (${response.statusCode})';
+        try {
+          final errorJson = json.decode(response.body);
+          if (errorJson['error'] != null) {
+            errorMsg = errorJson['error'];
+          }
+        } catch (_) {}
+        throw ApiException(errorMsg, statusCode: response.statusCode);
       }
     } on SocketException {
-      throw ApiException(
-        "Couldn't connect to the server at ${ApiConfig.baseUrl} to save feedback.",
-      );
+      throw ApiException('Network error: Could not reach the server.');
     } on TimeoutException {
-      throw ApiException('Request timed out while saving feedback.');
+      throw ApiException('Request timed out while sending feedback.');
     } catch (e) {
       if (e is ApiException) rethrow;
-      throw ApiException('Feedback error: $e');
+      throw ApiException('Error sending feedback: $e');
+    }
+  }
+
+  /// Fetch real-time personalization metrics from backend.
+  Future<Map<String, dynamic>> getPersonalizationStatus() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('${ApiConfig.baseUrl}/personalization/status'))
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      }
+      throw ApiException('Failed to fetch status (${response.statusCode})');
+    } catch (e) {
+      throw ApiException('Error fetching personalization status: $e');
+    }
+  }
+
+  /// Trigger asynchronous model fine-tuning job.
+  Future<Map<String, dynamic>> triggerPersonalizationTraining(String mode) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('${ApiConfig.baseUrl}/personalization/train'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'mode': mode, 'force': true}),
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200 || response.statusCode == 202) {
+        return json.decode(response.body) as Map<String, dynamic>;
+      }
+      throw ApiException('Failed to trigger training (${response.statusCode})');
+    } catch (e) {
+      throw ApiException('Error triggering personalization training: $e');
     }
   }
 }

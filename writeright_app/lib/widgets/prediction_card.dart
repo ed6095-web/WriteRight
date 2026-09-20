@@ -360,6 +360,27 @@ class _PredictionCardState extends State<PredictionCard> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (result.confidence < 0.70) ...[
+                    const Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          size: 14,
+                          color: AppTheme.warningOrange,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          'Low confidence — help improve WriteRight',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.warningOrange,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   Text(
                     result.isWordMode
                         ? 'Was this word recognized correctly?'

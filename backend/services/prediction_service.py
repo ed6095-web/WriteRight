@@ -29,10 +29,25 @@ class PredictionService:
     def initialize(self):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         models_dir = os.path.join(base_dir, "..", "model")
+        versioned_dir = os.path.join(base_dir, "..", "models")
+        active_json_path = os.path.join(versioned_dir, "active_model.json")
         user_downloads_dir = r"C:\Users\Eashan Darsh\Downloads\WriteRight_Models"
 
-        # 1. Load Digits Model (Check user Downloads first, then workspace model dir)
+        active_config = {}
+        if os.path.exists(active_json_path):
+            try:
+                import json
+                with open(active_json_path, "r", encoding="utf-8") as f:
+                    active_config = json.load(f)
+            except Exception as e:
+                logger.warning(f"Could not read active_model.json: {e}")
+
+        active_digit_ver = active_config.get("digits", "v1")
+        active_letter_ver = active_config.get("letters", "v1")
+
+        # 1. Load Digits Model (Check versioned active model first, then downloads, then model dir)
         digit_paths = [
+            os.path.join(versioned_dir, "digits", f"{active_digit_ver}.keras"),
             os.path.join(user_downloads_dir, "write_right_digits.keras"),
             os.path.join(models_dir, "write_right_digits.keras"),
             os.path.join(models_dir, "write_right_mnist.keras"),
@@ -41,16 +56,16 @@ class PredictionService:
         for path in digit_paths:
             if os.path.exists(path):
                 try:
-                    logger.info(f"Loading Digits model from: {path}")
+                    logger.info(f"Loading Digits model from: {path} (version: {active_digit_ver})")
                     self._digit_model = keras.models.load_model(path)
                     logger.info(f"Digits model loaded successfully from: {path}")
                     break
                 except Exception as e:
                     logger.error(f"Failed to load digit model from {path}: {e}")
 
-        # 2. Load Controlled Letters Model (used for Letters and Words recognition)
-        # Priority: C:\Users\Eashan Darsh\Downloads\WriteRight_Models
+        # 2. Load Controlled Letters Model (Check versioned active model first, then downloads, then model dir)
         letter_paths = [
+            os.path.join(versioned_dir, "letters", f"{active_letter_ver}.keras"),
             os.path.join(user_downloads_dir, "write_right_letters_controlled.keras"),
             os.path.join(user_downloads_dir, "write_right_letters.keras"),
             os.path.join(models_dir, "write_right_letters_controlled.keras"),
@@ -59,12 +74,17 @@ class PredictionService:
         for path in letter_paths:
             if os.path.exists(path):
                 try:
-                    logger.info(f"Loading Letters model from: {path}")
+                    logger.info(f"Loading Letters model from: {path} (version: {active_letter_ver})")
                     self._letter_model = keras.models.load_model(path)
                     logger.info(f"Letters model loaded successfully from: {path}")
                     break
                 except Exception as e:
                     logger.error(f"Failed to load letter model from {path}: {e}")
+
+    def reload_active_models(self):
+        """Reloads active models dynamically without server restart."""
+        logger.info("Hot-reloading active models in PredictionService...")
+        self.initialize()
 
     @property
     def is_digit_model_loaded(self) -> bool:

@@ -148,6 +148,9 @@ class _HomeScreenState extends State<HomeScreen> {
         _lastCapturedImage!,
         _predictionResult!.prediction,
         mode: _currentMode,
+        predictedLabel: _predictionResult!.prediction,
+        confidence: _predictionResult!.confidence,
+        source: 'confirmed_prediction',
       );
       if (!mounted) return;
       setState(() {
@@ -183,6 +186,9 @@ class _HomeScreenState extends State<HomeScreen> {
         _lastCapturedImage!,
         correctLabel,
         mode: _currentMode,
+        predictedLabel: _predictionResult?.prediction,
+        confidence: _predictionResult?.confidence,
+        source: 'explicit_correction',
       );
       if (!mounted) return;
       setState(() {
@@ -213,51 +219,184 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text(
-          'Backend Server Configuration',
+          'Backend & Personalization',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Enter your Flask server URL. For physical phones, use your computer\'s Wi-Fi LAN IP (e.g. http://192.168.1.50:5000):',
-              style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                labelText: 'Base URL',
-                hintText: 'http://192.168.x.x:5000',
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter your Flask server URL. For physical phones, use your computer\'s Wi-Fi LAN IP (e.g. http://192.168.1.50:5000):',
+                style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
               ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [
-                ActionChip(
-                  label: const Text('Localhost (127.0.0.1)'),
-                  onPressed: () => controller.text = ApiConfig.defaultDesktopUrl,
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  labelText: 'Base URL',
+                  hintText: 'http://192.168.x.x:5000',
                 ),
-                ActionChip(
-                  label: const Text('Local Phone LAN (10.3.49.51)'),
-                  avatar: const Icon(Icons.wifi, size: 16),
-                  onPressed: () => controller.text = ApiConfig.defaultLanUrl,
-                ),
-                ActionChip(
-                  label: const Text('Render Cloud'),
-                  avatar: const Icon(Icons.cloud_outlined, size: 16),
-                  onPressed: () => controller.text = ApiConfig.defaultProductionUrl,
-                ),
-                ActionChip(
-                  label: const Text('Emulator (10.0.2.2)'),
-                  onPressed: () => controller.text = ApiConfig.defaultAndroidEmulatorUrl,
-                ),
-              ],
-            ),
-          ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                children: [
+                  ActionChip(
+                    label: const Text('Localhost (127.0.0.1)'),
+                    onPressed: () => controller.text = ApiConfig.defaultDesktopUrl,
+                  ),
+                  ActionChip(
+                    label: const Text('Local Phone LAN (10.3.49.51)'),
+                    avatar: const Icon(Icons.wifi, size: 16),
+                    onPressed: () => controller.text = ApiConfig.defaultLanUrl,
+                  ),
+                  ActionChip(
+                    label: const Text('Render Cloud'),
+                    avatar: const Icon(Icons.cloud_outlined, size: 16),
+                    onPressed: () => controller.text = ApiConfig.defaultProductionUrl,
+                  ),
+                  ActionChip(
+                    label: const Text('Emulator (10.0.2.2)'),
+                    onPressed: () => controller.text = ApiConfig.defaultAndroidEmulatorUrl,
+                  ),
+                ],
+              ),
+              const Divider(height: 24, color: AppTheme.borderBlue),
+              // Personalization Status and Manual Fine-Tuning Card
+              FutureBuilder<Map<String, dynamic>>(
+                future: _apiService.getPersonalizationStatus(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    );
+                  }
+                  if (snapshot.hasError || !snapshot.hasData) {
+                    return const Text(
+                      'Personalization status unavailable (server offline).',
+                      style: TextStyle(fontSize: 12, color: AppTheme.textMuted),
+                    );
+                  }
+                  final data = snapshot.data!;
+                  final total = data['total_samples'] ?? 0;
+                  final pending = data['pending_samples'] ?? 0;
+                  final digitVer = data['active_digit_model'] ?? 'v1';
+                  final letterVer = data['active_letter_model'] ?? 'v1';
+                  final isTraining = data['training_in_progress'] ?? false;
+
+                  return Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.lightBlue.withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppTheme.borderBlue),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.psychology_outlined, size: 16, color: AppTheme.primaryBlue),
+                                SizedBox(width: 6),
+                                Text(
+                                  'Personalization System',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.darkBlue,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppTheme.successGreen.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                'Active',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.successGreen,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Samples learned: $total  •  Pending: $pending\nModels: Digits $digitVer  •  Letters $letterVer',
+                          style: const TextStyle(fontSize: 11, color: AppTheme.textPrimary, height: 1.4),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: isTraining
+                              ? null
+                              : () async {
+                                  final nav = Navigator.of(ctx);
+                                  final scaffold = ScaffoldMessenger.of(context);
+                                  try {
+                                    final res = await _apiService.triggerPersonalizationTraining(_currentMode);
+                                    nav.pop();
+                                    scaffold.showSnackBar(
+                                      SnackBar(
+                                        content: Text(res['message'] ?? 'Training job started in background.'),
+                                        backgroundColor: AppTheme.primaryBlue,
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    scaffold.showSnackBar(
+                                      SnackBar(
+                                        content: Text('Could not start training: $e'),
+                                        backgroundColor: AppTheme.warningOrange,
+                                        behavior: SnackBarBehavior.floating,
+                                      ),
+                                    );
+                                  }
+                                },
+                            icon: isTraining
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.model_training, size: 14),
+                            label: Text(
+                              isTraining ? 'Training in progress...' : 'Train Model on Accumulated Samples',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.primaryBlue,
+                              side: const BorderSide(color: AppTheme.primaryBlue),
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(

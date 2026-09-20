@@ -47,3 +47,5 @@ test_colab_out.png
 backend/debug_input.png
 backend/data/feedback/
 backend/data/user_samples/
+backend/data/*.db
+backend/training_data/
