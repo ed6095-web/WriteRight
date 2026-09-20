@@ -81,7 +81,7 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonResponse = json.decode(response.body);
-        return PredictionResult.fromJson(jsonResponse);
+        return PredictionResult.fromJson(jsonResponse, expectedMode: mode);
       } else {
         String errorMsg = 'Recognition failed (${response.statusCode})';
         try {

@@ -43,8 +43,8 @@ class PredictionResult {
   });
 
   /// Factory constructor to parse JSON response from Flask backend.
-  factory PredictionResult.fromJson(Map<String, dynamic> json) {
-    final mode = (json['mode'] as String?)?.toLowerCase() ?? 'digit';
+  factory PredictionResult.fromJson(Map<String, dynamic> json, {String? expectedMode}) {
+    final mode = (json['mode'] as String?)?.toLowerCase() ?? expectedMode ?? 'digit';
     final rawProbabilities = json['probabilities'];
     final Map<dynamic, double> parsedProbabilities = {};
 

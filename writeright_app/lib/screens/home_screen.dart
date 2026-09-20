@@ -238,17 +238,22 @@ class _HomeScreenState extends State<HomeScreen> {
               spacing: 8,
               children: [
                 ActionChip(
-                  label: const Text('Render Cloud (Live)'),
+                  label: const Text('Localhost (127.0.0.1)'),
+                  onPressed: () => controller.text = ApiConfig.defaultDesktopUrl,
+                ),
+                ActionChip(
+                  label: const Text('Local Phone LAN (10.3.49.51)'),
+                  avatar: const Icon(Icons.wifi, size: 16),
+                  onPressed: () => controller.text = ApiConfig.defaultLanUrl,
+                ),
+                ActionChip(
+                  label: const Text('Render Cloud'),
                   avatar: const Icon(Icons.cloud_outlined, size: 16),
                   onPressed: () => controller.text = ApiConfig.defaultProductionUrl,
                 ),
                 ActionChip(
                   label: const Text('Emulator (10.0.2.2)'),
                   onPressed: () => controller.text = ApiConfig.defaultAndroidEmulatorUrl,
-                ),
-                ActionChip(
-                  label: const Text('Localhost (127.0.0.1)'),
-                  onPressed: () => controller.text = ApiConfig.defaultDesktopUrl,
                 ),
               ],
             ),

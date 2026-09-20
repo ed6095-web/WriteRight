@@ -10,9 +10,10 @@ class ApiConfig {
   static const String defaultProductionUrl = 'https://writeright-backend-gcwb.onrender.com';
   static const String defaultAndroidEmulatorUrl = 'http://10.0.2.2:5000';
   static const String defaultDesktopUrl = 'http://127.0.0.1:5000';
+  static const String defaultLanUrl = 'http://10.3.49.51:5000';
 
-  /// Currently active base URL. Defaults to the live cloud backend on Render.
-  static String _currentBaseUrl = defaultProductionUrl;
+  /// Currently active base URL. Defaults to the local server where WriteRight_Models are loaded.
+  static String _currentBaseUrl = defaultDesktopUrl;
 
   static String get baseUrl => _currentBaseUrl;
 

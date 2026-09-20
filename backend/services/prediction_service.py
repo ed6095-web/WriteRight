@@ -29,9 +29,11 @@ class PredictionService:
     def initialize(self):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         models_dir = os.path.join(base_dir, "..", "model")
+        user_downloads_dir = r"C:\Users\Eashan Darsh\Downloads\WriteRight_Models"
 
-        # 1. Load Digits Model
+        # 1. Load Digits Model (Check user Downloads first, then workspace model dir)
         digit_paths = [
+            os.path.join(user_downloads_dir, "write_right_digits.keras"),
             os.path.join(models_dir, "write_right_digits.keras"),
             os.path.join(models_dir, "write_right_mnist.keras"),
             os.path.join(models_dir, "handwriting_model.keras"),
@@ -41,22 +43,25 @@ class PredictionService:
                 try:
                     logger.info(f"Loading Digits model from: {path}")
                     self._digit_model = keras.models.load_model(path)
-                    logger.info("Digits model loaded successfully.")
+                    logger.info(f"Digits model loaded successfully from: {path}")
                     break
                 except Exception as e:
                     logger.error(f"Failed to load digit model from {path}: {e}")
 
-        # 2. Load Controlled Letters Model
+        # 2. Load Controlled Letters Model (used for Letters and Words recognition)
+        # Priority: C:\Users\Eashan Darsh\Downloads\WriteRight_Models
         letter_paths = [
+            os.path.join(user_downloads_dir, "write_right_letters_controlled.keras"),
+            os.path.join(user_downloads_dir, "write_right_letters.keras"),
             os.path.join(models_dir, "write_right_letters_controlled.keras"),
             os.path.join(models_dir, "write_right_letters.keras"),
         ]
         for path in letter_paths:
             if os.path.exists(path):
                 try:
-                    logger.info(f"Loading Letters (controlled) model from: {path}")
+                    logger.info(f"Loading Letters model from: {path}")
                     self._letter_model = keras.models.load_model(path)
-                    logger.info("Letters controlled model loaded successfully.")
+                    logger.info(f"Letters model loaded successfully from: {path}")
                     break
                 except Exception as e:
                     logger.error(f"Failed to load letter model from {path}: {e}")
