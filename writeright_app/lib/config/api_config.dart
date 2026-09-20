@@ -12,8 +12,8 @@ class ApiConfig {
   static const String defaultDesktopUrl = 'http://127.0.0.1:5000';
   static const String defaultLanUrl = 'http://10.3.49.51:5000';
 
-  /// Currently active base URL. Defaults to the local server where WriteRight_Models are loaded.
-  static String _currentBaseUrl = defaultDesktopUrl;
+  /// Currently active base URL. Defaults to live cloud backend for physical devices.
+  static String _currentBaseUrl = defaultProductionUrl;
 
   static String get baseUrl => _currentBaseUrl;
 

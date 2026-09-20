@@ -9,7 +9,7 @@ import os
 import requests
 from PIL import Image, ImageDraw
 
-BASE_URL = "http://127.0.0.1:5000"
+BASE_URL = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:5000"
 
 def create_digit_7():
     img = Image.new("RGB", (300, 300), (255, 255, 255))
@@ -60,7 +60,7 @@ def run_all_tests():
 
     # 1. Health check
     print("\n[TEST 1] GET /health")
-    r = requests.get(f"{BASE_URL}/health", timeout=5)
+    r = requests.get(f"{BASE_URL}/health", timeout=45)
     print(r.json())
     assert r.status_code == 200
     assert r.json().get("digit_model_loaded") is True
@@ -72,7 +72,7 @@ def run_all_tests():
     r = requests.post(
         f"{BASE_URL}/predict",
         files={"image": ("test.png", create_digit_7(), "image/png")},
-        timeout=10,
+        timeout=45,
     )
     print("Response code:", r.status_code, "Body:", r.json())
     assert r.status_code == 400
@@ -84,7 +84,7 @@ def run_all_tests():
         f"{BASE_URL}/predict",
         files={"image": ("digit_7.png", create_digit_7(), "image/png")},
         data={"mode": "digit"},
-        timeout=10,
+        timeout=45,
     )
     print("Response:", r.json())
     assert r.status_code == 200
@@ -101,7 +101,7 @@ def run_all_tests():
         f"{BASE_URL}/predict",
         files={"image": ("letter_e.png", create_letter_e(), "image/png")},
         data={"mode": "letter"},
-        timeout=10,
+        timeout=45,
     )
     print("Response:", r.json())
     assert r.status_code == 200
@@ -118,7 +118,7 @@ def run_all_tests():
         f"{BASE_URL}/predict",
         files={"image": ("word_hello.png", create_word_hello(), "image/png")},
         data={"mode": "word"},
-        timeout=15,
+        timeout=45,
     )
     print("Response:", r.json())
     assert r.status_code == 200
