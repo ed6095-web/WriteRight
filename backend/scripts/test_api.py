@@ -1,6 +1,7 @@
 """
 Automated test suite for WriteRight Multimodal Backend.
-Tests Digits, Letters, and Words pipelines across all endpoints.
+Tests Digits, Letters, and Words pipelines across all endpoints,
+including strict mode routing and validation.
 """
 import io
 import sys
@@ -66,8 +67,19 @@ def run_all_tests():
     assert r.json().get("letter_model_loaded") is True
     print(">> [PASSED] Models loaded successfully.")
 
-    # 2. Digit Mode (Digit 7)
-    print("\n[TEST 2] POST /predict (mode=digit, drawing 7)")
+    # 2. Strict Mode Validation Check (Missing mode -> 400)
+    print("\n[TEST 2] POST /predict without mode parameter (Must return HTTP 400)")
+    r = requests.post(
+        f"{BASE_URL}/predict",
+        files={"image": ("test.png", create_digit_7(), "image/png")},
+        timeout=10,
+    )
+    print("Response code:", r.status_code, "Body:", r.json())
+    assert r.status_code == 400
+    print(">> [PASSED] Missing mode correctly rejected with HTTP 400.")
+
+    # 3. Digit Mode (Digit 7)
+    print("\n[TEST 3] POST /predict (mode=digit, drawing 7)")
     r = requests.post(
         f"{BASE_URL}/predict",
         files={"image": ("digit_7.png", create_digit_7(), "image/png")},
@@ -79,11 +91,12 @@ def run_all_tests():
     data = r.json()
     assert data["mode"] == "digit"
     assert str(data["prediction"]) == "7"
+    assert len(data["probabilities"]) == 10
     assert "debug_image_base64" in data
     print(f">> [PASSED] Digit recognized: {data['prediction']} ({data['confidence']*100:.2f}%)")
 
-    # 3. Letter Mode (Letter E)
-    print("\n[TEST 3] POST /predict (mode=letter, drawing E)")
+    # 4. Letter Mode (Letter E)
+    print("\n[TEST 4] POST /predict (mode=letter, drawing E)")
     r = requests.post(
         f"{BASE_URL}/predict",
         files={"image": ("letter_e.png", create_letter_e(), "image/png")},
@@ -95,11 +108,12 @@ def run_all_tests():
     data = r.json()
     assert data["mode"] == "letter"
     assert data["prediction"] == "E"
+    assert len(data["probabilities"]) == 26
     assert "debug_image_base64" in data
     print(f">> [PASSED] Letter recognized: {data['prediction']} ({data['confidence']*100:.2f}%)")
 
-    # 4. Word Mode (Word HELLO)
-    print("\n[TEST 4] POST /predict (mode=word, drawing HELLO)")
+    # 5. Word Mode (Word HELLO)
+    print("\n[TEST 5] POST /predict (mode=word, drawing HELLO)")
     r = requests.post(
         f"{BASE_URL}/predict",
         files={"image": ("word_hello.png", create_word_hello(), "image/png")},
@@ -112,10 +126,13 @@ def run_all_tests():
     assert data["mode"] == "word"
     assert data["prediction"] == "HELLO"
     assert len(data["characters"]) == 5
-    print(f">> [PASSED] Word recognized: {data['prediction']} ({data['confidence']*100:.2f}%)")
+    for c in data["characters"]:
+        assert "prediction" in c
+        assert "confidence" in c
+    print(f">> [PASSED] Word recognized: {data['prediction']} ({data['confidence']*100:.2f}%) [{len(data['characters'])} chars]")
 
-    # 5. Feedback Submissions
-    print("\n[TEST 5] POST /feedback for all 3 modes")
+    # 6. Feedback Submissions for all 3 modes
+    print("\n[TEST 6] POST /feedback for all 3 modes")
     # Digit feedback
     r = requests.post(
         f"{BASE_URL}/feedback",
@@ -134,11 +151,11 @@ def run_all_tests():
     assert r.status_code == 200
     assert r.json().get("success") is True
 
-    # Word feedback
+    # Word feedback with correct_word
     r = requests.post(
         f"{BASE_URL}/feedback",
         files={"image": ("f_word.png", create_word_hello(), "image/png")},
-        data={"mode": "word", "correct_label": "HELLO"},
+        data={"mode": "word", "correct_word": "HELLO"},
     )
     assert r.status_code == 200
     assert r.json().get("success") is True

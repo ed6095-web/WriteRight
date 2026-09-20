@@ -89,13 +89,18 @@ class PredictionService:
         raw_output = self._digit_model.predict(input_tensor, verbose=0)
         probabilities = np.squeeze(raw_output)
 
+        # Model output validation: must be 10 classes
+        num_classes = probabilities.shape[-1] if probabilities.ndim > 0 else len(probabilities)
+        if num_classes != 10:
+            raise RuntimeError(f"Model output mismatch for DIGIT mode: expected 10 classes, got {num_classes}.")
+
         predicted_class = int(np.argmax(probabilities))
         confidence = float(np.max(probabilities))
         prob_list = [round(float(p), 4) for p in probabilities]
 
         return {
             "mode": "digit",
-            "prediction": predicted_class,
+            "prediction": str(predicted_class),
             "confidence": round(confidence, 4),
             "probabilities": prob_list,
         }
@@ -110,6 +115,11 @@ class PredictionService:
 
         raw_output = self._letter_model.predict(input_tensor, verbose=0)
         probabilities = np.squeeze(raw_output)
+
+        # Model output validation: must be 26 classes
+        num_classes = probabilities.shape[-1] if probabilities.ndim > 0 else len(probabilities)
+        if num_classes != 26:
+            raise RuntimeError(f"Model output mismatch for LETTER mode: expected 26 classes (A-Z), got {num_classes}.")
 
         predicted_idx = int(np.argmax(probabilities))
         predicted_char = ALPHABET[predicted_idx]
@@ -132,6 +142,11 @@ class PredictionService:
             raise RuntimeError("Letter model is not loaded on the server.")
 
         raw_outputs = self._letter_model.predict(batch_tensors, verbose=0)
+
+        # Model output validation: each prediction must have 26 classes
+        if raw_outputs.shape[-1] != 26:
+            raise RuntimeError(f"Model output mismatch for WORD mode: expected 26 classes (A-Z), got {raw_outputs.shape[-1]}.")
+
         characters = []
         word_chars = []
         confidences = []

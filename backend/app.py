@@ -74,7 +74,7 @@ def predict():
     Multimodal recognition endpoint for digits, single letters, and words.
     Accepts:
         - image: multipart PNG file
-        - mode: 'digit' | 'letter' | 'word' (defaults to 'digit')
+        - mode: 'digit' | 'letter' | 'word' (REQUIRED)
     """
     if "image" not in request.files:
         return jsonify({"error": "No image file provided in request. Expected field 'image'."}), 400
@@ -87,20 +87,28 @@ def predict():
     if not image_bytes:
         return jsonify({"error": "Uploaded image file is empty."}), 400
 
-    mode = request.form.get("mode", "digit").strip().lower()
-    if mode not in ("digit", "digits", "letter", "letters", "word", "words"):
-        mode = "digit"
+    # Explicit mode requirement (no silent fallback)
+    raw_mode = request.form.get("mode") or request.args.get("mode")
+    if not raw_mode:
+        return jsonify({"error": "Missing required field 'mode'. Must be 'digit', 'letter', or 'word'."}), 400
 
-    # Normalize mode string
+    mode = raw_mode.strip().lower()
     if mode in ("digit", "digits"):
-        normalized_mode = "digit"
+        mode = "digit"
     elif mode in ("letter", "letters"):
-        normalized_mode = "letter"
+        mode = "letter"
+    elif mode in ("word", "words"):
+        mode = "word"
     else:
-        normalized_mode = "word"
+        return jsonify({"error": f"Invalid recognition mode '{raw_mode}'. Expected 'digit', 'letter', or 'word'."}), 400
+
+    # Required debug logging
+    print("Recognition mode:", mode, flush=True)
+    print("MODE:", mode, flush=True)
 
     try:
-        if normalized_mode == "digit":
+        if mode == "digit":
+            print("MODEL: digit", flush=True)
             input_tensor, debug_img, debug_b64 = preprocess_digit_image(
                 image_bytes,
                 debug_output_path=DEBUG_IMG_PATH
@@ -110,7 +118,8 @@ def predict():
             logger.info(f"[DIGIT] Predicted: {result['prediction']} ({result['confidence']*100:.2f}%)")
             return jsonify(result), 200
 
-        elif normalized_mode == "letter":
+        elif mode == "letter":
+            print("MODEL: controlled letter", flush=True)
             input_tensor, debug_img, debug_b64 = preprocess_single_letter_image(
                 image_bytes,
                 debug_output_path=DEBUG_IMG_PATH
@@ -120,16 +129,23 @@ def predict():
             logger.info(f"[LETTER] Predicted: {result['prediction']} ({result['confidence']*100:.2f}%)")
             return jsonify(result), 200
 
-        else: # word
-            batch_tensors, char_previews_b64, combined_debug_b64 = segment_and_preprocess_word(
+        elif mode == "word":
+            print("MODEL: controlled letter + segmentation", flush=True)
+            batch_tensors, char_previews_b64, combined_debug_b64, segments = segment_and_preprocess_word(
                 image_bytes,
                 debug_output_path=DEBUG_IMG_PATH
             )
+            print("SEGMENTS:", len(segments), flush=True)
+            print("LETTER INPUT SHAPE:", batch_tensors.shape, flush=True)
+
             result = prediction_service.predict_word(batch_tensors, char_previews_b64)
             result["debug_image_base64"] = combined_debug_b64
             result["character_previews_base64"] = char_previews_b64
             logger.info(f"[WORD] Predicted: {result['prediction']} ({result['confidence']*100:.2f}%) [{len(result['characters'])} chars]")
             return jsonify(result), 200
+
+        else:
+            return jsonify({"error": f"Unsupported recognition mode: '{mode}'"}), 400
 
     except EmptyDrawingError as e:
         return jsonify({"error": str(e)}), 400
@@ -149,17 +165,35 @@ def feedback():
     Feedback submission endpoint supporting Digits, Letters, and Words.
     Accepts:
         - image: multipart PNG file
-        - mode: 'digit' | 'letter' | 'word'
-        - correct_label: string value of correct answer
+        - mode: 'digit' | 'letter' | 'word' (REQUIRED)
+        - correct_label / correct_word: user-entered correct answer
     """
     if "image" not in request.files:
         return jsonify({"error": "Missing 'image' file in feedback request."}), 400
 
-    mode = request.form.get("mode", "digit").strip().lower()
-    correct_label_raw = request.form.get("correct_label", "").strip()
+    raw_mode = request.form.get("mode") or request.args.get("mode")
+    if not raw_mode:
+        return jsonify({"error": "Missing required field 'mode'. Must be 'digit', 'letter', or 'word'."}), 400
+
+    mode = raw_mode.strip().lower()
+    if mode in ("digit", "digits"):
+        mode = "digit"
+    elif mode in ("letter", "letters"):
+        mode = "letter"
+    elif mode in ("word", "words"):
+        mode = "word"
+    else:
+        return jsonify({"error": f"Invalid feedback mode '{raw_mode}'. Expected 'digit', 'letter', or 'word'."}), 400
+
+    correct_label_raw = (
+        request.form.get("correct_label") or
+        request.form.get("correct_word") or
+        request.args.get("correct_label") or
+        request.args.get("correct_word") or ""
+    ).strip()
 
     if not correct_label_raw:
-        return jsonify({"error": "Missing 'correct_label' form field."}), 400
+        return jsonify({"error": "Missing 'correct_label' or 'correct_word' form field."}), 400
 
     file = request.files["image"]
     image_bytes = file.read()
@@ -171,7 +205,7 @@ def feedback():
     filename = f"sample_{timestamp}_{unique_id}.png"
 
     # Validation and routing per mode
-    if mode in ("digit", "digits"):
+    if mode == "digit":
         try:
             val = int(correct_label_raw)
             if not (0 <= val <= 9):
@@ -181,7 +215,6 @@ def feedback():
             return jsonify({"error": f"Invalid digit label '{correct_label_raw}'. Must be 0-9."}), 400
 
         target_dir = os.path.join(FEEDBACK_DIR, "digits", label_str)
-        # Also copy to legacy user_samples
         legacy_dir = os.path.join(DATA_DIR, "user_samples", label_str)
         os.makedirs(target_dir, exist_ok=True)
         os.makedirs(legacy_dir, exist_ok=True)
@@ -191,7 +224,7 @@ def feedback():
         with open(os.path.join(legacy_dir, filename), "wb") as f:
             f.write(image_bytes)
 
-    elif mode in ("letter", "letters"):
+    elif mode == "letter":
         char = correct_label_raw.upper()
         if len(char) != 1 or not ('A' <= char <= 'Z'):
             return jsonify({"error": f"Invalid letter label '{correct_label_raw}'. Must be single character A-Z."}), 400
@@ -201,7 +234,7 @@ def feedback():
         with open(os.path.join(target_dir, filename), "wb") as f:
             f.write(image_bytes)
 
-    elif mode in ("word", "words"):
+    elif mode == "word":
         word_clean = "".join(c for c in correct_label_raw.upper() if c.isalpha())
         if not word_clean:
             return jsonify({"error": "Word label must contain valid letters A-Z."}), 400

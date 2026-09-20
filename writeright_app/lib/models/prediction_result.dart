@@ -25,7 +25,7 @@ class CharacterPrediction {
 /// Supports Digits, Letters, and Words modes seamlessly.
 class PredictionResult {
   final String mode; // 'digit' | 'letter' | 'word'
-  final dynamic prediction; // int for digit, String for letter or word
+  final String prediction; // "7", "E", "HELLO"
   final double confidence;
   final Map<dynamic, double> probabilities;
   final String? debugImageBase64;
@@ -44,7 +44,7 @@ class PredictionResult {
 
   /// Factory constructor to parse JSON response from Flask backend.
   factory PredictionResult.fromJson(Map<String, dynamic> json, {String? expectedMode}) {
-    final mode = (json['mode'] as String?)?.toLowerCase() ?? expectedMode ?? 'digit';
+    final mode = (json['mode'] as String?)?.toLowerCase() ?? expectedMode?.toLowerCase() ?? 'digit';
     final rawProbabilities = json['probabilities'];
     final Map<dynamic, double> parsedProbabilities = {};
 
@@ -52,7 +52,7 @@ class PredictionResult {
       for (int i = 0; i < rawProbabilities.length; i++) {
         final val = rawProbabilities[i];
         if (val is num) {
-          if (mode == 'letter') {
+          if (mode == 'letter' || mode == 'letters') {
             parsedProbabilities[String.fromCharCode(65 + i)] = val.toDouble();
           } else {
             parsedProbabilities[i] = val.toDouble();
@@ -90,7 +90,7 @@ class PredictionResult {
 
     return PredictionResult(
       mode: mode,
-      prediction: json['prediction'],
+      prediction: json['prediction']?.toString() ?? '',
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
       probabilities: parsedProbabilities,
       debugImageBase64: json['debug_image_base64'] as String?,
@@ -100,14 +100,14 @@ class PredictionResult {
   }
 
   /// String representation of primary prediction
-  String get displayPrediction => prediction?.toString() ?? '';
+  String get displayPrediction => prediction;
 
   /// Formatted confidence string (e.g., "95.17%")
   String get formattedConfidence => '${(confidence * 100).toStringAsFixed(2)}%';
 
-  bool get isWordMode => mode == 'word';
-  bool get isLetterMode => mode == 'letter';
-  bool get isDigitMode => mode == 'digit';
+  bool get isWordMode => mode == 'word' || mode == 'words';
+  bool get isLetterMode => mode == 'letter' || mode == 'letters';
+  bool get isDigitMode => mode == 'digit' || mode == 'digits';
 
   /// Top sorted alternatives
   List<MapEntry<dynamic, double>> get sortedProbabilities {

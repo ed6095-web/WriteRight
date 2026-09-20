@@ -64,7 +64,7 @@ class ApiService {
     }
 
     try {
-      final uri = Uri.parse(ApiConfig.predictEndpoint);
+      final uri = Uri.parse('${ApiConfig.predictEndpoint}?mode=$mode');
       final request = http.MultipartRequest('POST', uri);
 
       request.fields['mode'] = mode;
@@ -122,10 +122,11 @@ class ApiService {
     String mode = 'digit',
   }) async {
     try {
-      final uri = Uri.parse(ApiConfig.feedbackEndpoint);
+      final uri = Uri.parse('${ApiConfig.feedbackEndpoint}?mode=$mode');
       final request = http.MultipartRequest('POST', uri);
 
       request.fields['correct_label'] = correctLabel.toString();
+      request.fields['correct_word'] = correctLabel.toString();
       request.fields['mode'] = mode;
       request.files.add(
         http.MultipartFile.fromBytes(

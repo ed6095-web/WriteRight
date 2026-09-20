@@ -160,13 +160,13 @@ def preprocess_single_letter_image(image_bytes: bytes, debug_output_path: str = 
     return tensor, canvas_28, debug_base64
 
 
-def segment_and_preprocess_word(image_bytes: bytes, debug_output_path: str = None) -> tuple[np.ndarray, list[str], str]:
+def segment_and_preprocess_word(image_bytes: bytes, debug_output_path: str = None) -> tuple[np.ndarray, list[str], str, list]:
     """
     Word Segmentation and Preprocessing:
     1. Invert canvas so handwriting is bright on black.
     2. Segment individual characters using vertical projection and gap detection.
     3. Run preprocess_letter_crop on each character crop.
-    4. Return (N, 28, 28, 1) tensor and per-character base64 previews.
+    4. Return (N, 28, 28, 1) tensor, per-character base64 previews, combined debug base64, and segments list.
     """
     inv_arr = _prepare_inverted_grayscale(image_bytes)
 
@@ -178,10 +178,9 @@ def segment_and_preprocess_word(image_bytes: bytes, debug_output_path: str = Non
         raise EmptyDrawingError("No handwriting detected. The drawing canvas is empty.")
 
     # Detect horizontal gaps between letters
-    # Words written on canvas have gap distances between letters
     diffs = np.diff(active_cols)
-    # Gap threshold: at least 7 pixels or adaptive based on span
-    gap_threshold = max(7, int(0.012 * inv_arr.shape[1]))
+    # Gap threshold: at least 6 pixels or 0.01 of image width
+    gap_threshold = max(6, int(0.01 * inv_arr.shape[1]))
     split_points = np.where(diffs > gap_threshold)[0]
 
     start_indices = [active_cols[0]] + [active_cols[i + 1] for i in split_points]
@@ -189,21 +188,21 @@ def segment_and_preprocess_word(image_bytes: bytes, debug_output_path: str = Non
 
     raw_segments = list(zip(start_indices, end_indices))
 
-    # Filter out tiny single-pixel noise segments
+    # Filter out tiny noise segments (< 4px wide)
     segments = []
     for s_start, s_end in raw_segments:
         if (s_end - s_start + 1) >= 4:
-            segments.append((s_start, s_end))
+            segments.append((int(s_start), int(s_end)))
 
     if not segments:
-        raise WordSegmentationError("Could not clearly separate the characters. Try writing with a little more spacing.")
+        raise WordSegmentationError("Could not detect any characters. Please write clearly on the canvas.")
 
     char_tensors = []
     char_previews_b64 = []
     combined_images = []
+    valid_segments = []
 
     for s_start, s_end in segments:
-        # Add a tiny margin around character crop
         margin_x1 = max(0, s_start - 3)
         margin_x2 = min(inv_arr.shape[1], s_end + 4)
         char_crop = inv_arr[:, margin_x1:margin_x2]
@@ -211,6 +210,7 @@ def segment_and_preprocess_word(image_bytes: bytes, debug_output_path: str = Non
         p = preprocess_letter_crop(char_crop)
         if p is not None:
             char_tensors.append(p)
+            valid_segments.append((s_start, s_end))
             c_img = Image.fromarray((p * 255.0).astype(np.uint8))
             combined_images.append(c_img)
 
@@ -219,7 +219,7 @@ def segment_and_preprocess_word(image_bytes: bytes, debug_output_path: str = Non
             char_previews_b64.append(base64.b64encode(buf.getvalue()).decode("utf-8"))
 
     if not char_tensors:
-        raise WordSegmentationError("Could not clearly separate the characters. Try writing with a little more spacing.")
+        raise WordSegmentationError("Could not detect any characters. Please write clearly on the canvas.")
 
     # Create combined horizontal debug preview showing all characters side-by-side
     total_w = 28 * len(combined_images)
@@ -235,5 +235,5 @@ def segment_and_preprocess_word(image_bytes: bytes, debug_output_path: str = Non
     combined_debug.save(buf, format="PNG")
     combined_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
-    batch_tensor = np.array(char_tensors).reshape(-1, 28, 28, 1)
-    return batch_tensor, char_previews_b64, combined_b64
+    batch_tensor = np.array(char_tensors, dtype=np.float32).reshape(-1, 28, 28, 1)
+    return batch_tensor, char_previews_b64, combined_b64, valid_segments
